@@ -99,6 +99,7 @@ def main():
     input_text = "What is the capital of France?"
     input_ids = tokenizer.encode(input_text, return_tensors='pt')  # Shape: (1, seq_len)
     print(f"Input IDs: {input_ids}")
+    print(f"inputs_ids shape: {input_ids.shape}")
 
     # Get input embeddings from LLaMA
     input_embeddings = llama_model.model.embed_tokens(input_ids)  # Shape: (1, seq_len, hidden_size)
@@ -113,6 +114,8 @@ def main():
     print(f"LSSM decoded text: {lssm_decoded}")
     # Save LSSM model weights
     # torch.save(lssm_model.state_dict(), "lssm_weights.pth")
+
+
     # Pass inputs through the original LLaMA model for comparison
     llama_outputs = llama_model(input_ids, use_cache=False).logits  # Shape: (1, seq_len, vocab_size)
     print(f"LLaMA outputs shape: {llama_outputs.shape}")
@@ -121,9 +124,8 @@ def main():
     llama_decoded = tokenizer.decode(torch.argmax(llama_outputs, dim=-1).squeeze().tolist())
     print(f"LLaMA decoded text: {llama_decoded}")
 
-    
-    output_ids = llama_model.generate(input_ids, max_new_tokens=500, num_return_sequences=1)
-    
+    output_ids = llama_model.generate(input_ids, max_new_tokens=100, num_return_sequences=1)
+    print(f"output_ids shape: {output_ids.shape}")
     generated_text = tokenizer.decode(output_ids[0], skip_special_tokens=True)
     print(f"Generated Text: {generated_text}")
 
