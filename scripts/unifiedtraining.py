@@ -6,7 +6,7 @@ import torch.nn as nn
 
 
 # Parameters
-num_samples = 1000
+num_samples = 10
 seq_len = 100
 input_dim = 10
 shared_embedding_dim = 50
@@ -20,17 +20,17 @@ model_params = {
         'model_dim': 20,
         'output_dim': 5,
         'num_heads': 2,
-        'num_layers': 2
+        'num_layers': 4
     },
     'mamba': {
         'hidden_dim': 1,
         'output_dim': 5,
-        'num_layers': 1
+        'num_layers': 2
     },
     'lstm': {
         'hidden_dim': 20,
         'output_dim': 5,
-        'num_layers': 1
+        'num_layers': 2
     },
     'liquid_s4': {
         'state_dim': 20,
@@ -47,6 +47,12 @@ def apply_gradient_clipping(models, max_norm=1.0):
     for model in models:
         torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm)
 
+# Early stopping function with patience
+def should_early_stop(losses, patience=5, delta=1e-4):
+    if len(losses) < patience:
+        return False
+    return all(abs(losses[-i] - losses[-i-1]) < delta for i in range(1, patience))
+
 def train_unified_model(unified_model, dataloader, criterion, optimizer, target_loss, max_epochs=100, max_norm=1.0, consistency_weight_output=0.1, consistency_weight_feature=0.05):
     epoch = 0
     avg_loss = float('inf')
@@ -54,38 +60,44 @@ def train_unified_model(unified_model, dataloader, criterion, optimizer, target_
     
     while avg_loss > target_loss and epoch < max_epochs:
         total_loss = 0
+        primary_loss_total = 0
+        consistency_loss_total = 0
         unified_model.train()
-        for inputs, targets in dataloader:
+        for batch_idx, (inputs, targets) in enumerate(dataloader):
             # Move inputs and targets to the same device as the model
             inputs = inputs.to(device)
-            targets = targets.to(device)
+            targets = targets.to(device).long()
+            # Ensure targets are within the valid range
+            if targets.max() >= output_dim or targets.min() < 0:
+                raise ValueError(f"Targets should be in the range [0, {output_dim - 1}]. Found min: {targets.min()}, max: {targets.max()}")
             
-            # Ensure targets are of type long for CrossEntropyLoss
-            targets = targets.long()
+            
+            # **Validate Input Data**
+            if torch.isnan(inputs).any() or torch.isinf(inputs).any():
+                raise ValueError("Input contains NaN or Inf values.")
+            if torch.isnan(targets).any() or torch.isinf(targets).any():
+                raise ValueError("Targets contain NaN or Inf values.")
             
             # Forward pass
             outputs, projected_features = unified_model(inputs)
 
+            #for i, output in enumerate(outputs):
+                #print(f"Model {i} output shape: {output.shape}")
+                #print(f"Model {i} output sample: {output[0, 0]}")
+
             # Compute primary losses
             primary_losses = []
-            for output in outputs:
-                # Reshape outputs and targets for loss computation
-                output = output.view(-1, output.size(-1))  # (batch_size * seq_len, output_dim)
-                target = targets.view(-1)  # (batch_size * seq_len)
-                
-                # Check target values are within the correct range
-                if target.max() >= output.size(-1) or target.min() < 0:
-                    raise ValueError(f"Target values {target.min()} to {target.max()} are out of range [0, {output.size(-1)-1}]")
-                
-                primary_loss = criterion(output, target)
-                primary_losses.append(primary_loss)
+            for i in range(len(outputs)):
+                for j in range(i + 1, len(outputs)):
+                    consistency_loss = nn.functional.mse_loss(outputs[i], outputs[j])
+                    primary_losses.append(consistency_loss)
 
             # Compute output consistency losses
             consistency_losses = []
             for i in range(len(outputs)):
                 for j in range(i + 1, len(outputs)):
-                    # Ensure outputs are detached to prevent gradient flow through consistency loss
-                    consistency_loss = nn.functional.mse_loss(outputs[i].detach(), outputs[j].detach())
+                    # Remove .detach() to allow gradient flow through consistency loss
+                    consistency_loss = nn.functional.mse_loss(outputs[i], outputs[j])
                     consistency_losses.append(consistency_loss)
 
             # Compute feature consistency losses
@@ -96,7 +108,8 @@ def train_unified_model(unified_model, dataloader, criterion, optimizer, target_
                 # Compute pairwise consistency loss
                 for i in range(len(current_layer_features)):
                     for j in range(i + 1, len(current_layer_features)):
-                        feature_loss = nn.functional.mse_loss(current_layer_features[i].detach(), current_layer_features[j].detach())
+                        # Remove .detach() to allow gradient flow through feature consistency loss
+                        feature_loss = nn.functional.mse_loss(current_layer_features[i], current_layer_features[j])
                         feature_consistency_losses.append(feature_loss)
 
             # Total loss with scaled consistency losses
@@ -109,19 +122,33 @@ def train_unified_model(unified_model, dataloader, criterion, optimizer, target_
             loss.backward()
 
             # Apply gradient clipping
-            apply_gradient_clipping([unified_model], max_norm=max_norm)
+            torch.nn.utils.clip_grad_norm_(unified_model.parameters(), max_norm=1)  # Reduced max_norm from 1.0 to 0.5
 
             # Optimizer step
             optimizer.step()
 
             total_loss += loss.item()
+            primary_loss_total += total_primary_loss.item()
+            consistency_loss_total += total_consistency_loss.item()
+
+            if batch_idx % 10 == 0:
+                print(f"Batch [{batch_idx}/{len(dataloader)}], Loss: {loss.item():.4f}")
         avg_loss = total_loss / len(dataloader)
+        avg_primary_loss = primary_loss_total / len(dataloader)
+        avg_consistency_loss = consistency_loss_total / len(dataloader)
         losses.append(avg_loss)
         epoch += 1
-        print(f"Epoch [{epoch}], Loss: {avg_loss:.4f}")
+        print(f"Epoch [{epoch + 1}/{max_epochs}], Avg Loss: {avg_loss:.4f}, Primary Loss: {avg_primary_loss:.4f}, Consistency Loss: {avg_consistency_loss:.4f}")
+        
+        
+        # Step the Scheduler
+        scheduler.step(avg_loss)
         # Early stopping if loss plateaus
         if len(losses) > 5 and abs(losses[-1] - losses[-2]) < 1e-4:
             print("Early stopping due to minimal loss improvement.")
+            break
+        if should_early_stop(losses):
+            print("Early stopping due to lack of progress.")
             break
     return avg_loss
 
@@ -136,7 +163,10 @@ unified_model = UnifiedModel(
 
 # Define criterion and optimizer
 criterion = nn.CrossEntropyLoss()
-optimizer = torch.optim.Adam(unified_model.parameters(), lr=0.0001)  # Reduced learning rate from 0.001 to 0.0001
+optimizer = torch.optim.AdamW(unified_model.parameters(), lr=0.005, weight_decay=1e-5)  # Corrected learning rate from 0.05 to 0.0001
+
+# **Added Learning Rate Scheduler**
+scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', factor=0.5, patience=5, verbose=True)
 
 # Move model to device if using GPU
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -144,10 +174,10 @@ unified_model.to(device)
 
 # Train the unified model
 print("Training Unified Model with Consistency Loss")
-target_loss = 1.611  # Adjust based on initial observations
-max_epochs = 100   # Maximum epochs to prevent infinite loops
+target_loss = .001  # Adjust based on initial observations
+max_epochs = 1000   # Maximum epochs to prevent infinite loops
 consistency_weight_output = 0.1
-consistency_weight_feature = 0.05  # May require experimentation
+consistency_weight_feature = 0.5  # May require experimentation
 
 final_loss = train_unified_model(
     unified_model,

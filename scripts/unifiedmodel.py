@@ -1,8 +1,8 @@
 import torch.nn as nn
-from transformer import SimpleTransformer
-from mamba import MambaModel
-from lstm import SimpleLSTM
-from s4model import LiquidS4
+from models.transformer import SimpleTransformer
+from models.mamba import MambaModel
+from models.lstm import SimpleLSTM
+from models.s4model import LiquidS4
 
 class FeatureProjection(nn.Module):
     def __init__(self, input_dim, projection_dim):
@@ -56,11 +56,23 @@ class UnifiedModel(nn.Module):
             FeatureProjection(model_params['liquid_s4']['state_dim'], projection_dim)
         ])
 
-        # Initialize projection layers to prevent large initial weights
-        for proj in self.feature_projections:
-            nn.init.xavier_uniform_(proj.projection.weight)
-            if proj.projection.bias is not None:
-                nn.init.zeros_(proj.projection.bias)
+        # Initialize all sub-models
+        self._initialize_weights()
+
+    def _initialize_weights(self):
+        # Initialize shared embedding
+        nn.init.xavier_uniform_(self.shared_embedding.weight)
+        if self.shared_embedding.bias is not None:
+            nn.init.zeros_(self.shared_embedding.bias)
+        
+        # Initialize individual models
+        for name, module in self.named_children():
+            if isinstance(module, (SimpleTransformer, MambaModel, SimpleLSTM, LiquidS4)):
+                for param in module.parameters():
+                    if param.dim() > 1:
+                        nn.init.xavier_uniform_(param)
+                    else:
+                        nn.init.zeros_(param)
 
     def forward(self, x):
         # print("Input shape:", x.shape)  # Debug: Input shape
