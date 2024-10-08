@@ -1,10 +1,9 @@
 import torch
 from torch.utils.data import DataLoader
-from dataset import SyntheticSequenceDataset
-from unifiedmodel import UnifiedModel, FeatureProjection
+from scripts.dataset import SyntheticSequenceDataset
+from scripts.unifiedmodel import UnifiedModel, FeatureProjection
 import torch.nn as nn
 
-# ... existing imports ...
 
 # Parameters
 num_samples = 1000

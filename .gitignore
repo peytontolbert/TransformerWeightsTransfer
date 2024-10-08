@@ -1,6 +1,2 @@
-lssm_weights.pth
-liquid_weights.pth
-lssm_weights.pth
-lstm_weights.pth
-mamba_weights.pth
-transformer_weights.pth
+weights/*
+*.pth

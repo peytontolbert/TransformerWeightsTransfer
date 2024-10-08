@@ -1,10 +1,10 @@
 import torch
 from sklearn.metrics import accuracy_score, f1_score, confusion_matrix
 import numpy as np
-from transformer import SimpleTransformer
-from mamba import MambaModel
-from lstm import SimpleLSTM
-from s4model import LiquidS4
+from models.transformer import SimpleTransformer
+from models.mamba import MambaModel
+from models.lstm import SimpleLSTM
+from models.s4model import LiquidS4
 from torch.utils.data import random_split
 from torch.utils.data import DataLoader
 from torch.utils.data import Dataset
