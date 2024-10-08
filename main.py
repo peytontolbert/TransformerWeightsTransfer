@@ -124,7 +124,7 @@ def main():
     llama_decoded = tokenizer.decode(torch.argmax(llama_outputs, dim=-1).squeeze().tolist())
     print(f"LLaMA decoded text: {llama_decoded}")
 
-    output_ids = llama_model.generate(input_ids, max_new_tokens=100, num_return_sequences=1)
+    output_ids = AutoModelForCausalLM.from_pretrained("meta-llama/Llama-3.2-3B").generate(input_ids, max_new_tokens=100, num_return_sequences=1)
     print(f"output_ids shape: {output_ids.shape}")
     generated_text = tokenizer.decode(output_ids[0], skip_special_tokens=True)
     print(f"Generated Text: {generated_text}")
