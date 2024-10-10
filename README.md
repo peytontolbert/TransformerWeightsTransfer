@@ -91,7 +91,6 @@ python eval/view_graph.py
 weights-transfer-playground/
 ├── README.md
 ├── main.py
-├── test.py
 ├── llamaconfig
 ├── scripts/
 │ ├── compute_distances.py
@@ -125,7 +124,6 @@ weights-transfer-playground/
 #### Root Directory
 - **`README.md`**: Provides an overview and instructions for the project.
 - **`main.py`**: The main script that demonstrates weight transfer between models.
-- **`test.py`**: Script for testing the models' functionality.
 
 #### `llamaconfig/`
 - Contains configuration files for the LLaMA model.
