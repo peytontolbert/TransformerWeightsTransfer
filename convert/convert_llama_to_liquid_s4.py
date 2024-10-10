@@ -12,24 +12,34 @@ def create_liquid_s4_from_llama(llama_model):
     # Extract dimensions
     hidden_size = llama_model.config.hidden_size
     vocab_size = llama_model.config.vocab_size
+    num_layers = llama_model.config.num_hidden_layers  # {{ edit_1: Get the number of layers }}
 
-    # Initialize LiquidS4 matrices using LLaMA weights
-    A_init = llama_model.model.layers[0].self_attn.q_proj.weight.clone().detach()  # Example initialization
-    B_init = torch.eye(hidden_size)  # Identity matrix or appropriate initialization
-    C_init = llama_model.lm_head.weight.clone().detach()
-    liquid_kernel_init = torch.randn(hidden_size, hidden_size)  # Initialize as needed
-
-    # Create LiquidS4 model
+    # Initialize LiquidS4 model with multiple layers
     liquid_s4_model = LiquidS4(
         state_dim=hidden_size,
         input_dim=hidden_size,
         output_dim=vocab_size,
-        liquid_order=2  # Adjust as necessary
+        liquid_order=2,
+        num_layers=num_layers  # {{ edit_2: Pass the number of layers }}
     )
-    liquid_s4_model.A.data.copy_(A_init)
-    liquid_s4_model.B.data.copy_(B_init)
-    liquid_s4_model.C.data.copy_(C_init.transpose(0, 1))  # Transpose to match (hidden_size, vocab_size)
-    liquid_s4_model.liquid_kernel.data.copy_(liquid_kernel_init)
+
+    # Iterate over all layers to transfer weights
+    for layer_idx in range(num_layers):
+        # Transfer A, B, C matrices for each layer
+        layer = llama_model.model.layers[layer_idx]
+        if layer_idx < num_layers - 1:
+            liquid_layer = liquid_s4_model.layers[layer_idx]  # {{ edit_3: Access corresponding LiquidS4 layer }}
+
+            liquid_layer.A.data.copy_(layer.self_attn.q_proj.weight.clone().detach())
+            liquid_layer.B.data.copy_(torch.eye(hidden_size))
+            liquid_layer.C.data.copy_(torch.eye(hidden_size))  # {{ edit_4: Initialize intermediate C as identity }}
+            liquid_layer.liquid_kernel.data.copy_(torch.randn(hidden_size, hidden_size))  # Initialize as needed
+        else:
+            liquid_layer = liquid_s4_model.final_layer  # {{ edit_5: Access final output layer }}
+            liquid_layer.A.data.copy_(layer.self_attn.q_proj.weight.clone().detach())
+            liquid_layer.B.data.copy_(torch.eye(hidden_size))
+            liquid_layer.C.data.copy_(llama_model.lm_head.weight.clone().detach().transpose(0, 1))  # {{ edit_6: Assign C in final layer }}
+            liquid_layer.liquid_kernel.data.copy_(torch.randn(hidden_size, hidden_size))  # Initialize as needed
 
     return liquid_s4_model
 

@@ -2,12 +2,12 @@ import torch
 import torch.nn as nn
 
 class SimpleLSTM(nn.Module):
-    def __init__(self, input_dim, hidden_dim, output_dim, num_layers=1):
+    def __init__(self, input_dim, hidden_dim, output_dim, num_layers=1, dropout_prob=0.2):  # Added dropout parameter
         super(SimpleLSTM, self).__init__()
         self.hidden_dim = hidden_dim
 
         # LSTM Layer
-        self.lstm = nn.LSTM(input_dim, hidden_dim, num_layers=num_layers, batch_first=True)
+        self.lstm = nn.LSTM(input_dim, hidden_dim, num_layers=num_layers, dropout=dropout_prob, batch_first=True)
 
         # Output layer
         self.output_fc = nn.Linear(hidden_dim, output_dim)
@@ -16,7 +16,7 @@ class SimpleLSTM(nn.Module):
         """
         x: Tensor of shape (batch_size, seq_len, input_dim)
         """
-        # print(f"Input x shape: {x.shape}")  # Debug: Print input shape
+        #print(f"LSTM Input x shape: {x.shape}")  # Debug: Print input shape
 
         lstm_output, (hn, cn) = self.lstm(x)  # (batch_size, seq_len, hidden_dim)
         # print(f"LSTM output shape: {lstm_output.shape}")  # Debug: Print LSTM output shape

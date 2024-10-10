@@ -2,12 +2,15 @@ import torch
 import torch.nn as nn
 
 class MambaModel(nn.Module):
-    def __init__(self, input_dim, hidden_dim, output_dim, num_layers=1):
+    def __init__(self, input_dim, hidden_dim, output_dim, num_layers=1, dropout_prob=0.5):  # Added dropout_prob parameter
         super(MambaModel, self).__init__()
         self.hidden_dim = hidden_dim
 
         # Recurrent Layer (GRU or LSTM)
         self.rnn = nn.GRU(input_dim, hidden_dim, num_layers=num_layers, batch_first=True)
+
+        # **Added Dropout Layer**
+        self.dropout = nn.Dropout(p=dropout_prob)
 
         # Gated Attention Mechanism
         self.attention = nn.Linear(hidden_dim, hidden_dim)
@@ -20,11 +23,14 @@ class MambaModel(nn.Module):
         """
         x: Tensor of shape (batch_size, seq_len, input_dim)
         """
-        # print("Input x shape:", x.shape)  # Debug: Print input shape
+        #print("mamba Input x shape:", x.shape)  # Debug: Print input shape
 
         # Recurrent layer
         rnn_output, _ = self.rnn(x)  # (batch_size, seq_len, hidden_dim)
         # print("RNN output shape:", rnn_output.shape)  # Debug: Print RNN output shape
+
+        # **Apply Dropout After RNN Output**
+        rnn_output = self.dropout(rnn_output)
 
         # Attention mechanism
         energy = torch.tanh(self.attention(rnn_output))  # (batch_size, seq_len, hidden_dim)
