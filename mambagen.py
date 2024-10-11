@@ -1,4 +1,4 @@
-from models.llama.generation import Llama
+from models.mamba.generation import LlamaMamba
 import torch
 from typing import List
 import fire
@@ -30,7 +30,7 @@ def main(
         print(f"An unexpected error occurred while accessing {ckpt_dir}: {e}")
         return
 
-    model = Llama.build(
+    model = LlamaMamba.build(
         ckpt_dir=ckpt_dir,
         tokenizer_path=tokenizer_path,
         max_seq_len=max_seq_len,

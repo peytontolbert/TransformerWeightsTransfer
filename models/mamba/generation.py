@@ -9,10 +9,10 @@ from pathlib import Path
 from typing import List, Optional, Tuple, TypedDict
 
 import torch
+import torch.nn as nn  # Ensure nn.Module is imported
 import torch.nn.functional as F
-
-from models.llama.model import ModelArgs, Transformer
-from models.llama.tokenizer import ChatFormat, Dialog, Message, Tokenizer
+from models.mamba.model import ModelArgs, LlamaMambaModel
+from models.mamba.tokenizer import ChatFormat, Dialog, Message, Tokenizer
 
 
 class CompletionPrediction(TypedDict, total=False):
@@ -27,7 +27,7 @@ class ChatPrediction(TypedDict, total=False):
     logprobs: List[float]  # not required
 
 
-class Llama:
+class LlamaMamba(nn.Module):  # Inherit from nn.Module
     @staticmethod
     def build(
         ckpt_dir: str,
@@ -36,7 +36,7 @@ class Llama:
         max_batch_size: int,
         model_parallel_size: Optional[int] = None,  # Consider removing if unused
         seed: int = 1,
-    ) -> "Llama":
+    ) -> "LlamaMamba":
         """
         Build a Llama instance by initializing and loading a model checkpoint.
 
@@ -84,14 +84,15 @@ class Llama:
             torch.set_default_tensor_type(torch.cuda.BFloat16Tensor)
         else:
             torch.set_default_tensor_type(torch.cuda.HalfTensor)
-        model = Transformer(model_args)
+        model = LlamaMambaModel(model_args)
         model.load_state_dict(checkpoint, strict=False)
         model.to("cuda:0")  # Ensure the model is on CUDA:0
         print(f"Loaded in {time.time() - start_time:.2f} seconds")
 
-        return Llama(model, tokenizer)
+        return LlamaMamba(model, tokenizer)
 
-    def __init__(self, model: Transformer, tokenizer: Tokenizer):
+    def __init__(self, model: LlamaMambaModel, tokenizer: Tokenizer):
+        super().__init__()  # Initialize nn.Module
         self.model = model
         self.tokenizer = tokenizer
         self.formatter = ChatFormat(tokenizer)
@@ -156,7 +157,8 @@ class Llama:
         stop_tokens = torch.tensor(list(self.tokenizer.stop_tokens))
 
         for cur_pos in range(min_prompt_len, total_len):
-            logits = self.model.forward(tokens[:, prev_pos:cur_pos], prev_pos)
+            # Unpack logits and ignore attention_weights
+            logits, _ = self.model.forward(tokens[:, prev_pos:cur_pos], prev_pos)
             if temperature > 0:
                 probs = torch.softmax(logits[:, -1] / temperature, dim=-1)
                 next_token = sample_top_p(probs, top_p)
@@ -256,6 +258,41 @@ class Llama:
             ]
         return [{"generation": self.tokenizer.decode(t)} for t in generation_tokens]
 
+    def text_completion_train(
+        self,
+        prompts: List[str],
+        temperature: float = 0.1,
+        top_p: float = 0.9,
+        max_gen_len: Optional[int] = None,
+        logprobs: bool = False,
+        echo: bool = False,
+    ) -> torch.Tensor:
+        """
+        Prepare inputs and targets for training by encoding prompts and generating target sequences.
+
+        Args:
+            prompts (List[str]): List of text prompts for training.
+            max_gen_len (Optional[int], optional): Maximum length of the generated sequence. Defaults to model's max_seq_len - prompt length.
+
+        Returns:
+            torch.Tensor: Target tokens for loss computation.
+        """
+        # Encode prompts
+        prompt_tokens = [self.tokenizer.encode(x, bos=True, eos=False) for x in prompts]
+        
+        # Generate targets by extending prompts (implementation depends on your training strategy)
+        # Example: Shift tokens for next-token prediction
+
+        generation_tokens, generation_logprobs = self.generate(
+            prompt_tokens=prompt_tokens,
+            max_gen_len=max_gen_len,
+            temperature=temperature,
+            top_p=top_p,
+            logprobs=logprobs,
+            echo=echo,
+        )
+        return generation_tokens
+
     def chat_completion(
         self,
         dialogs: List[Dialog],
@@ -334,11 +371,15 @@ def sample_top_p(probs, p):
         Top-p sampling selects the smallest set of tokens whose cumulative probability mass
         exceeds the threshold p. The distribution is renormalized based on the selected tokens.
     """
+    # Ensure probs is 2D: (batch_size, vocab_size)
+    if probs.dim() != 2:
+        raise ValueError(f"Expected probs to be 2D, got {probs.dim()}D")
+    
     probs_sort, probs_idx = torch.sort(probs, dim=-1, descending=True)
     probs_sum = torch.cumsum(probs_sort, dim=-1)
     mask = probs_sum - probs_sort > p
     probs_sort[mask] = 0.0
-    probs_sort.div_(probs_sort.sum(dim=-1, keepdim=True))
+    probs_sort = probs_sort / probs_sort.sum(dim=-1, keepdim=True)
     next_token = torch.multinomial(probs_sort, num_samples=1)
     next_token = torch.gather(probs_idx, -1, next_token)
     return next_token
