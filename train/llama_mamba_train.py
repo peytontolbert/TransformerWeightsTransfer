@@ -78,7 +78,8 @@ def train_model(source_model, target_model, criterion, optimizer, num_epochs=5):
         max_gen_len: int = 64
         temperature: float = 0.6
         top_p: float = 0.9
-        labels = source_model.text_completion_train(
+        print(f"prompts: {prompts}")
+        labels, decoded_prompts = source_model.text_completion_train(
             prompts,
             max_gen_len=max_gen_len,
             temperature=temperature,
@@ -106,7 +107,7 @@ def train_model(source_model, target_model, criterion, optimizer, num_epochs=5):
             labels = torch.tensor(labels, dtype=torch.float, requires_grad=True)
 
         loss = criterion(outputs, labels)  # Compute loss with correctly shaped tensors
-        
+        prompts = decoded_prompts
         # Backward pass and optimize
         loss.backward()
         optimizer.step()
